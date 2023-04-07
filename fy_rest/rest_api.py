@@ -1,12 +1,12 @@
 import time
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Union, Callable, Any
-from flask import request, Flask, jsonify
+from typing import Dict, Callable, Any, List
+from flask import request, Flask, jsonify, current_app, Response
 from flask.cli import with_appcontext
 from functools import wraps
 import click
-
+import __main__
 
 routeArgs = re.compile(r'\<(.*?)\>')
 
@@ -54,18 +54,18 @@ class RestContext:
             self.isAdmin = self.user and self.user.is_admin
 
 class RestAPI:
+    __APIDoc__ = {}
+    __APIRoute2Type__ = []
+    __TSTypes__ = {
+        'bool': 'boolean',
+        'str': 'string',
+        'float': 'number',
+        'int': 'number',
+        'NoneType': 'null',
+        'Any': 'unknown'
+    }
+    __RegisteredTypes__ = {}
     def __init__(self, app: Flask = None, base_url="http://localhost:5000", load_user: Callable = None, refresh_user: Callable = None):
-        self.__APIDoc__ = {}
-        self.__APIDocSubtypes__ = {}
-        self.__APIRoute2Type__ = []
-        self.__TSTypes__ = {
-            'bool': 'boolean',
-            'str': 'string',
-            'float': 'number',
-            'int': 'number',
-            'NoneType': 'null',
-            'Any': 'unknown'
-        }
         self.app = app
         self.load_user = load_user
         self.refresh_user = refresh_user
@@ -78,26 +78,27 @@ class RestAPI:
             app.extensions = {}
         app.extensions['restapi'] = self
         app.route = self.route_decorator(app.route)
-        app.cli.add_command(self.get_types_command)
-        app.cli.add_command(self.get_fetch_command)
-        app.cli.add_command(self.get_all_command)
-        
-    @click.command("rest-get-types", help="Print API TypeScript types")
-    @with_appcontext
-    def get_types_command(self):
-        print(self.get_typescript_types())
+        @app.route('/ts')
+        def ts(ctx):
+            response = Response(self.get_all(), content_type='text/plain')
+            return response
 
-    @click.command("rest-get-fetch", help="Print API TypeScript fetch functions")
-    @with_appcontext
-    def get_fetch_command(self):
-        print(self.generate_typescript_fetch_functions())
-
+        app.cli.add_command(RestAPI.get_all_command)
+    
     @click.command("rest-all", help="Print API TypeScript types and fetch functions")
     @with_appcontext
-    def get_all_command(self):
+    @staticmethod 
+    def get_all_command():
         print('import { v4 as uuidv4 } from "uuid";')
-        print(self.get_typescript_types())
-        print(self.generate_typescript_fetch_functions()) 
+        rest_api = current_app.extensions['restapi']
+        print(rest_api.get_typescript_types())
+        print(rest_api.generate_typescript_fetch_functions())
+        
+    def get_all(self):
+        base = 'import { v4 as uuidv4 } from "uuid";'
+        types = self.get_typescript_types()
+        fetchs = self.generate_typescript_fetch_functions()
+        return f'''{base}\n{types}\n{fetchs}'''
         
     def route_decorator(self, original_route):
         def new_route_decorator(*args, **kwargs):
@@ -131,7 +132,7 @@ class RestAPI:
         return new_route_decorator
 
     def add_type_information(self, endpoint, methods, response_type,  req=None):
-        types = {f.name: self.__TSTypes__.get(f.type.__name__, f.type.__name__) for f in response_type.__dataclass_fields__.values()}
+        types = {f.name: RestAPI.__TSTypes__.get(f.type.__name__, f.type.__name__) for f in response_type.__dataclass_fields__.values()}
         name = response_type.__name__
         _endpoint = endpoint
         _args = []
@@ -141,16 +142,16 @@ class RestAPI:
             _endpoint = _endpoint.replace(m, '${%s}' % _argName)
             _args.append([_argName, _argsType])
 
-        self.__APIDoc__[name] = dict(route=endpoint, methods=methods, response=types, name=name)
-        self.__APIRoute2Type__.append({'route': _endpoint, 'type': name, 'method': methods[0], 'name': name, 'args': _args, 'req': req})
+        RestAPI.__APIDoc__[name] = dict(route=endpoint, methods=methods, response=types, name=name)
+        RestAPI.__APIRoute2Type__.append({'route': _endpoint, 'type': name, 'method': methods[0], 'name': name, 'args': _args, 'req': req})
         
     def get_api_types(self) -> Dict[str, Dict[str, str]]:
-        return self.__APIDoc__
+        return RestAPI.__APIDoc__
 
     def get_typescript_types(self) -> str:
         def process_type(t: type) -> str:
-            if t.__name__ in self.__TSTypes__:
-                return self.__TSTypes__[t.__name__]
+            if t.__name__ in RestAPI.__TSTypes__:
+                return RestAPI.__TSTypes__[t.__name__]
             elif t.__name__ == 'List':
                 subtype = t.__args__[0]
                 return f'Array<{process_type(subtype)}>'
@@ -168,7 +169,7 @@ class RestAPI:
         result_types = []
 
         def visit_type(cls):
-            if cls in visited_types or cls in self.__TSTypes__:
+            if cls in visited_types or cls in RestAPI.__TSTypes__:
                 return
             visited_types.add(cls)
             if hasattr(cls, '__dataclass_fields__'):
@@ -176,20 +177,27 @@ class RestAPI:
                     visit_type(field.type)
                 result_types.append(generate_types(cls))
 
-        for cls in self.__APIDoc__.values():
+        for cls in RestAPI.__APIDoc__.values():
             response_type_name = cls['name']
-            response_type = globals()[response_type_name]
+            response_type = RestAPI.__RegisteredTypes__[response_type_name]
             visit_type(response_type)
 
         return ''.join(result_types)
 
+    def register_types(self, t : List[type]):
+        for _t in t:
+            self.register_type(_t)
+            
+    def register_type(self, t : type) -> None:
+        RestAPI.__RegisteredTypes__[t.__name__] = t
+        
     def generate_typescript_fetch_functions(self) -> str:
         result = []
         def to_camel_case(s: str) -> str:
             s = s.strip('/').replace('-', '_')
             return ''.join(word.capitalize() if i > 0 else word for i, word in enumerate(s.split('_')))
 
-        for route_info in self.__APIRoute2Type__:
+        for route_info in RestAPI.__APIRoute2Type__:
             route = route_info['route']
             method = route_info['method']
             response_type = route_info['type']
@@ -200,26 +208,26 @@ class RestAPI:
 
             if method == 'GET':
                 result.append(f'''
-    export async function {func_name}(params: {{ [key: string]: any }}): Promise<{response_type}> {{
-        const queryParams = Object.entries(params).map(([key, value]) => `${{encodeURIComponent(key)}}=${{encodeURIComponent(value)}}`).join('&');
-        const url = `{self.base_url}{route}` + (queryParams ? `?${{queryParams}}` : '');
-        const response = await fetch(url, {{
-            method: '{method}',
-            {headers}
-        }});
-        return (await response.json()) as {response_type};
-    }}
+export async function {func_name}(params: {{ [key: string]: any }}): Promise<{response_type}> {{
+    const queryParams = Object.entries(params).map(([key, value]) => `${{encodeURIComponent(key)}}=${{encodeURIComponent(value)}}`).join('&');
+    const url = `{self.base_url}{route}` + (queryParams ? `?${{queryParams}}` : '');
+    const response = await fetch(url, {{
+        method: '{method}',
+        {headers}
+    }});
+    return (await response.json()) as {response_type};
+}}
     ''')
             else:
                 result.append(f'''
-    export async function {func_name}(params: {{ [key: string]: any }}): Promise<{response_type}> {{
-        const response = await fetch(`{self.base_url}{route}`, {{
-            method: '{method}',
-            {headers},
-            body: JSON.stringify(params)
-        }});
-        return (await response.json()) as {response_type} & {{ success: boolean }};
-    }}
+export async function {func_name}(params: {{ [key: string]: any }}): Promise<{response_type}> {{
+    const response = await fetch(`{self.base_url}{route}`, {{
+        method: '{method}',
+        {headers},
+        body: JSON.stringify(params)
+    }});
+    return (await response.json()) as {response_type} & {{ success: boolean }};
+}}
     ''')
 
         return '\n'.join(result)

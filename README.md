@@ -15,17 +15,18 @@ Import and use the ```RestAPI``` class in your Flask application:
 
 ```python
 from flask import Flask
-from fyrest import RestAPI
+from fy_rest import RestAPI
+api = RestApi(base_url="http://localhost:5000", load_user: None, refresh_user: None)
 
 app = Flask(__name__)
-api = RestAPI(app)
+api.init_app(app)
 ```
 
 ## Creating API Routes
 
 ```python
 from dataclasses import dataclass
-from fyrest import APIResponse
+from fy_rest import APIResponse
 from flask import jsonify
 
 @dataclass
@@ -37,6 +38,8 @@ class User:
 class UserResponse(APIResponse):
     data: User
 
+api.register_types([User, UserResponse]) #: need to find a better way to do that.
+
 @app.route('/users', methods=['GET'], response_type=UserResponse)
 def get_users(ctx):
     users = [User(id=1, name='Alice'), User(id=2, name='Bob')]
@@ -46,11 +49,10 @@ def get_users(ctx):
 ## CLI Commands
 Fyrest provides three CLI commands to help you generate TypeScript types and fetch functions for your API:
 
-1.  `flask rest-get-types`: Prints the TypeScript types for your API.
-2.  `flask rest-get-fetch`: Prints the TypeScript fetch functions for your API.
-3.  `flask rest-all`: Prints both the TypeScript types and fetch functions for your API.
+`flask rest-all`: Prints both the TypeScript types and fetch functions for your API.
 
-These commands will output the TypeScript types and fetch functions as requested.
+This command will output the TypeScript types and fetch functions as requested.
+Or you can just access https://localhost:5000/ts
 
 ```bash
 $ flask rest-all
@@ -76,6 +78,4 @@ export async function usersFetch(params: { [key: string]: any }): Promise<UserRe
         headers: new Headers({"Content-Type": "application/json", "X-Request-Id": uuidv4(), "X-Fyrest-Session": session})
     });
     return (await response.json()) as UserResponse;
-}
-
-```
+}```

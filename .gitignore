@@ -1,0 +1,9 @@
+pycache/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.log
+*.sqlite
+.env

@@ -78,4 +78,5 @@ export async function usersFetch(params: { [key: string]: any }): Promise<UserRe
         headers: new Headers({"Content-Type": "application/json", "X-Request-Id": uuidv4(), "X-Fyrest-Session": session})
     });
     return (await response.json()) as UserResponse;
-}```
+}
+```

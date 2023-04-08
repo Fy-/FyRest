@@ -1,4 +1,4 @@
-# Fyrest
+# restfy
 
 A Flask extension for creating RESTful APIs with TypeScript type generation. This library is still in development and should be considered a playground at this stage. Do not use it in production environments.
 
@@ -7,7 +7,7 @@ A Flask extension for creating RESTful APIs with TypeScript type generation. Thi
 Install the package using pip:
 
 ```bash
-pip install git+https://github.com/Fy-/FyRest.git
+pip install git+https://github.com/Fy-/restfy.git
 ```
 
 ## Usage 

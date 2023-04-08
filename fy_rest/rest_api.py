@@ -41,7 +41,7 @@ class RestContext:
             self.session = self.header_session
             
     def get_time(self):
-        return time.time_ns() - self.start
+        return (time.time_ns() - self.start) / 1000000000
     
     def refresh_user(self):
         if self.refresh_user:

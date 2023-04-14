@@ -97,7 +97,7 @@ class TypeScriptGenerator:
         response_type = route_info['type']
 
         return f'''
-export async function {func_name}({', '.join([f"{arg[0]}: {arg[1]}" for arg in route_info['args']] + ['params: { [key: string]: any }'])}: Promise<{response_type}> {{
+export async function {func_name}({', '.join([f"{arg[0]}: {arg[1]}" for arg in route_info['args']] + ['params: { [key: string]: any }'])}): Promise<{response_type}> {{
     const queryParams = Object.entries(params).map(([key, value]) => `${{encodeURIComponent(key)}}=${{encodeURIComponent(value)}}`).join('&');
     const url = `{self.rest_api.base_url}{route}` + (queryParams ? `?${{queryParams}}` : '');
     const response = await fetch(url, {{
@@ -114,7 +114,7 @@ export async function {func_name}({', '.join([f"{arg[0]}: {arg[1]}" for arg in r
         response_type = route_info['type']
 
         return f'''
-export async function {func_name}({', '.join([f"{arg[0]}: {arg[1]}" for arg in route_info['args']] + ['params: { [key: string]: any }', 'files: { [key: string]: File | Blob }'])}: Promise<{response_type}> {{
+export async function {func_name}({', '.join([f"{arg[0]}: {arg[1]}" for arg in route_info['args']] + ['params: { [key: string]: any }', 'files: { [key: string]: File | Blob }'])}): Promise<{response_type}> {{
     const formData = new FormData();
     Object.entries(params).forEach(([key, value]) => formData.append(key, value));
     Object.entries(files).forEach(([key, file]) => formData.append(key, file));
@@ -134,7 +134,7 @@ export async function {func_name}({', '.join([f"{arg[0]}: {arg[1]}" for arg in r
         response_type = route_info['type']
 
         return f'''
-export async function {func_name}({', '.join([f"{arg[0]}: {arg[1]}" for arg in route_info['args']] + ['params: { [key: string]: any }'])}: Promise<{response_type}> {{
+export async function {func_name}({', '.join([f"{arg[0]}: {arg[1]}" for arg in route_info['args']] + ['params: { [key: string]: any }'])}): Promise<{response_type}> {{
     const url = `{self.rest_api.base_url}{route}`;
     const response = await fetch(url, {{
         method: '{route_info['method']}',
@@ -315,7 +315,7 @@ class RestAPI:
             _endpoint = _endpoint.replace('<', '').replace('>', '')
             _argsType, _argName = m.split(':')
             _endpoint = _endpoint.replace(m, '${%s}' % _argName)
-            _args.append([_argName, _argsType])
+            _args.append([_argName, TypeScriptGenerator.__TSTypes__[_argsType]])
 
         RestAPI.__APIDoc__[name] = dict(route=endpoint,
                                         methods=methods,

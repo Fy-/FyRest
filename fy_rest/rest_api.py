@@ -17,9 +17,12 @@ class APIResponse:
     data: Any = None
     message: str = None
     time: float = None
-        
+
+
 class RestContext:
-    def __init__(self, headers, req, load_user: Callable[[], Any], refresh_user: Callable[[], Any]):
+
+    def __init__(self, headers, req, load_user: Callable[[], Any],
+                 refresh_user: Callable[[], Any]):
         self.uuid = False
         self.start = time.time_ns()
         self.headers = headers
@@ -39,10 +42,10 @@ class RestContext:
 
         if self.header_session:
             self.session = self.header_session
-            
+
     def get_time(self):
         return (time.time_ns() - self.start) / 1000000000
-    
+
     def refresh_user(self):
         if self.refresh_user:
             self.refresh_user()
@@ -52,6 +55,7 @@ class RestContext:
             self.user = self.load_user()
             self.hasUser = self.user is not None
             self.isAdmin = self.user and self.user.is_admin
+
 
 class RestAPI:
     __APIDoc__ = {}
@@ -65,7 +69,12 @@ class RestAPI:
         'Any': 'unknown'
     }
     __RegisteredTypes__ = {}
-    def __init__(self, app: Flask = None, base_url="http://localhost:5000", load_user: Callable = None, refresh_user: Callable = None):
+
+    def __init__(self,
+                 app: Flask = None,
+                 base_url="http://localhost:5000",
+                 load_user: Callable = None,
+                 refresh_user: Callable = None):
         self.app = app
         self.load_user = load_user
         self.refresh_user = refresh_user
@@ -73,66 +82,90 @@ class RestAPI:
         if app is not None:
             self.init_app(app)
 
+    def register_blueprint(self, blueprint):
+        blueprint.route = self.route_decorator(blueprint.route)
+
     def init_app(self, app: Flask):
         if not hasattr(app, 'extensions'):
             app.extensions = {}
         app.extensions['restapi'] = self
         app.route = self.route_decorator(app.route)
+
         @app.route('/ts')
         def ts(ctx):
             response = Response(self.get_all(), content_type='text/plain')
             return response
 
         app.cli.add_command(RestAPI.get_all_command)
-    
-    @click.command("rest-all", help="Print API TypeScript types and fetch functions")
+
+    @click.command("rest-all",
+                   help="Print API TypeScript types and fetch functions")
     @with_appcontext
-    @staticmethod 
+    @staticmethod
     def get_all_command():
         print('import { v4 as uuidv4 } from "uuid";')
         rest_api = current_app.extensions['restapi']
         print(rest_api.get_typescript_types())
         print(rest_api.generate_typescript_fetch_functions())
-        
+
     def get_all(self):
         base = 'import { v4 as uuidv4 } from "uuid";'
         types = self.get_typescript_types()
         fetchs = self.generate_typescript_fetch_functions()
         return f'''{base}\n{types}\n{fetchs}'''
-        
+
     def route_decorator(self, original_route):
+
         def new_route_decorator(*args, **kwargs):
-            req = kwargs.pop('req', None)  # Add this line to get the 'req' parameter
+            req = kwargs.pop('req',
+                             None)  # Add this line to get the 'req' parameter
 
             if 'response_type' in kwargs:
                 response_type = kwargs.pop('response_type')
                 methods = kwargs.get('methods', ['GET'])
                 self.add_type_information(args[0], methods, response_type, req)
+                self.register_type_recursively(response_type)
+
             def decorator(f):
                 if req:
+
                     @wraps(f)
                     def wrapped(*f_args, **f_kwargs):
-                        rest_context = RestContext(request.headers, request, self.load_user, self.refresh_user)
+                        rest_context = RestContext(request.headers, request,
+                                                   self.load_user,
+                                                   self.refresh_user)
 
                         if req == 'user' and not rest_context.hasUser:
-                            return jsonify(APIResponse(False, message="Unauthorized").__dict__), 401
+                            return jsonify(
+                                APIResponse(
+                                    False,
+                                    message="Unauthorized").__dict__), 401
                         elif req == 'admin' and not rest_context.isAdmin:
-                            return jsonify(APIResponse(False, message="Forbidden").__dict__), 403
+                            return jsonify(
+                                APIResponse(False,
+                                            message="Forbidden").__dict__), 403
 
                         return f(rest_context, *f_args, **f_kwargs)
                 else:
+
                     @wraps(f)
                     def wrapped(*f_args, **f_kwargs):
-                        rest_context = RestContext(request.headers, request, self.load_user, self.refresh_user)
+                        rest_context = RestContext(request.headers, request,
+                                                   self.load_user,
+                                                   self.refresh_user)
                         return f(rest_context, *f_args, **f_kwargs)
 
                 return original_route(*args, **kwargs)(wrapped)
 
             return decorator
+
         return new_route_decorator
 
-    def add_type_information(self, endpoint, methods, response_type,  req=None):
-        types = {f.name: RestAPI.__TSTypes__.get(f.type.__name__, f.type.__name__) for f in response_type.__dataclass_fields__.values()}
+    def add_type_information(self, endpoint, methods, response_type, req=None):
+        types = {
+            f.name: RestAPI.__TSTypes__.get(f.type.__name__, f.type.__name__)
+            for f in response_type.__dataclass_fields__.values()
+        }
         name = response_type.__name__
         _endpoint = endpoint
         _args = []
@@ -142,13 +175,24 @@ class RestAPI:
             _endpoint = _endpoint.replace(m, '${%s}' % _argName)
             _args.append([_argName, _argsType])
 
-        RestAPI.__APIDoc__[name] = dict(route=endpoint, methods=methods, response=types, name=name)
-        RestAPI.__APIRoute2Type__.append({'route': _endpoint, 'type': name, 'method': methods[0], 'name': name, 'args': _args, 'req': req})
-        
+        RestAPI.__APIDoc__[name] = dict(route=endpoint,
+                                        methods=methods,
+                                        response=types,
+                                        name=name)
+        RestAPI.__APIRoute2Type__.append({
+            'route': _endpoint,
+            'type': name,
+            'method': methods[0],
+            'name': name,
+            'args': _args,
+            'req': req
+        })
+
     def get_api_types(self) -> Dict[str, Dict[str, str]]:
         return RestAPI.__APIDoc__
 
     def get_typescript_types(self) -> str:
+
         def process_type(t: type) -> str:
             if t.__name__ in RestAPI.__TSTypes__:
                 return RestAPI.__TSTypes__[t.__name__]
@@ -184,25 +228,35 @@ class RestAPI:
 
         return ''.join(result_types)
 
-    def register_types(self, t : List[type]):
+    def register_types(self, t: List[type]):
         for _t in t:
             self.register_type(_t)
-            
-    def register_type(self, t : type) -> None:
+
+    def register_type(self, t: type) -> None:
         RestAPI.__RegisteredTypes__[t.__name__] = t
-        
+
+    def register_type_recursively(self, t: type):
+        if t.__name__ in RestAPI.__RegisteredTypes__ or t.__name__ in RestAPI.__TSTypes__:
+            return
+        self.register_type(t)
+        if hasattr(t, '__dataclass_fields__'):
+            for field in t.__dataclass_fields__.values():
+                if field.type.__name__ not in RestAPI.__TSTypes__:
+                    self.register_type_recursively(field.type)
+
     def generate_typescript_fetch_functions(self) -> str:
         result = []
+
         def to_camel_case(s: str) -> str:
             s = s.strip('/').replace('-', '_')
-            return ''.join(word.capitalize() if i > 0 else word for i, word in enumerate(s.split('_')))
+            return ''.join(word.capitalize() if i > 0 else word
+                           for i, word in enumerate(s.split('_')))
 
         for route_info in RestAPI.__APIRoute2Type__:
             route = route_info['route']
             method = route_info['method']
             response_type = route_info['type']
             func_name = f"{to_camel_case(route)}Fetch"
-
 
             headers = f'headers: new Headers({{"Content-Type": "application/json", "X-Request-Id": uuidv4(), "X-Fyrest-Session": session}})'
 

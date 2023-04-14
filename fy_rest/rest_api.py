@@ -11,6 +11,140 @@ import __main__
 routeArgs = re.compile(r'\<(.*?)\>')
 
 
+class TypeScriptGenerator:
+    __TSTypes__ = {
+        'bool': 'boolean',
+        'str': 'string',
+        'float': 'number',
+        'int': 'number',
+        'NoneType': 'null',
+        'Any': 'unknown'
+    }
+
+    def __init__(self, rest_api: "RestAPI"):
+        self.rest_api = rest_api
+
+    def process_type(self, t: type) -> str:
+        if t.__name__ in TypeScriptGenerator.__TSTypes__:
+            return TypeScriptGenerator.__TSTypes__[t.__name__]
+        elif t.__name__ == 'List':
+            subtype = t.__args__[0]
+            return f'Array<{self.process_type(subtype)}>'
+        else:
+            return t.__name__
+
+    def to_camel_case(self, s: str) -> str:
+        s = s.strip('/').replace('-', '_')
+        return ''.join(word.capitalize() if i > 0 else word
+                       for i, word in enumerate(s.split('_')))
+
+    def generate_typescript_types(self) -> str:
+        visited_types = set()
+        result_types = []
+
+        def visit_type(cls):
+            if cls in visited_types or cls in TypeScriptGenerator.__TSTypes__:
+                return
+            visited_types.add(cls)
+            if hasattr(cls, '__dataclass_fields__'):
+                for field in cls.__dataclass_fields__.values():
+                    visit_type(field.type)
+                result_types.append(self.generate_types(cls))
+
+        for cls in RestAPI.__APIDoc__.values():
+            response_type_name = cls['name']
+            response_type = RestAPI.__RegisteredTypes__[response_type_name]
+            visit_type(response_type)
+
+        return ''.join(result_types)
+
+    def generate_types(self, cls: type) -> str:
+        result = f'export interface {cls.__name__} {{\n'
+        for field in cls.__dataclass_fields__.values():
+            result += f"  {field.name}: {self.process_type(field.type)};\n"
+        result += '}\n\n'
+        return result
+
+    def generate_typescript_fetch_functions(self) -> str:
+        result = []
+
+        for route_info in RestAPI.__APIRoute2Type__:
+            func_name = f"{self.to_camel_case(route_info['func_name'])}"
+            result.append(self.generate_function(route_info, func_name))
+
+        return '\n'.join(result)
+
+    def generate_function(self, route_info, func_name) -> str:
+        headers = f'headers: new Headers({{"Content-Type": "application/json", "X-Request-Id": uuidv4(), "X-Fyrest-Session": session}})'
+        route = route_info['route'].format(
+            **{f"{arg[0]}": f"{{{arg[0]}}}" for arg in route_info['args']})
+        method = route_info['method']
+        response_type = route_info['type']
+
+        if method == 'GET':
+            return self.generate_get_function(route_info, func_name, headers)
+        else:
+            if route_info['accept_files']:
+                return self.generate_post_function_with_files(
+                    route_info, func_name, headers)
+            else:
+                return self.generate_post_function(route_info, func_name,
+                                                   headers)
+
+    def generate_get_function(self, route_info, func_name, headers) -> str:
+        route = route_info['route'].format(
+            **{f"{arg[0]}": f"{{{arg[0]}}}" for arg in route_info['args']})
+        response_type = route_info['type']
+
+        return f'''
+export async function {func_name}({', '.join([f"{arg[0]}: {arg[1]}" for arg in route_info['args']] + ['params: { [key: string]: any }'])}: Promise<{response_type}> {{
+    const queryParams = Object.entries(params).map(([key, value]) => `${{encodeURIComponent(key)}}=${{encodeURIComponent(value)}}`).join('&');
+    const url = `{self.rest_api.base_url}{route}` + (queryParams ? `?${{queryParams}}` : '');
+    const response = await fetch(url, {{
+        method: '{route_info['method']}',
+        {headers}
+    }});
+    return (await response.json()) as {response_type};
+}}'''
+
+    def generate_post_function_with_files(self, route_info, func_name,
+                                          headers) -> str:
+        route = route_info['route'].format(
+            **{f"{arg[0]}": f"{{{arg[0]}}}" for arg in route_info['args']})
+        response_type = route_info['type']
+
+        return f'''
+export async function {func_name}({', '.join([f"{arg[0]}: {arg[1]}" for arg in route_info['args']] + ['params: { [key: string]: any }', 'files: { [key: string]: File | Blob }'])}: Promise<{response_type}> {{
+    const formData = new FormData();
+    Object.entries(params).forEach(([key, value]) => formData.append(key, value));
+    Object.entries(files).forEach(([key, file]) => formData.append(key, file));
+    
+    const url = `{self.rest_api.base_url}{route}`;
+    const response = await fetch(url, {{
+        method: '{route_info['method']}',
+        {headers},
+        body: formData
+    }});
+    return (await response.json()) as {response_type};
+}}'''
+
+    def generate_post_function(self, route_info, func_name, headers) -> str:
+        route = route_info['route'].format(
+            **{f"{arg[0]}": f"{{{arg[0]}}}" for arg in route_info['args']})
+        response_type = route_info['type']
+
+        return f'''
+export async function {func_name}({', '.join([f"{arg[0]}: {arg[1]}" for arg in route_info['args']] + ['params: { [key: string]: any }'])}: Promise<{response_type}> {{
+    const url = `{self.rest_api.base_url}{route}`;
+    const response = await fetch(url, {{
+        method: '{route_info['method']}',
+        {headers},
+        body: JSON.stringify(params)
+    }});
+    return (await response.json()) as {response_type};
+}}'''
+
+
 @dataclass
 class APIResponse:
     success: bool
@@ -33,8 +167,8 @@ class RestContext:
         self.session = None
         self.req = req
         self.header_session = self.headers.get('x-fy-session') or None
-        self.load_user = load_user
-        self.refresh_user = refresh_user
+        self.load_user_fct = load_user
+        self.refresh_user_fct = refresh_user
         self.request_id = self.headers.get('x-request-id')
 
         if self.req in ['user', 'admin']:
@@ -47,12 +181,12 @@ class RestContext:
         return (time.time_ns() - self.start) / 1000000000
 
     def refresh_user(self):
-        if self.refresh_user:
-            self.refresh_user()
+        if self.refresh_user_fct:
+            self.refresh_user_fct()
 
-    def loadUser(self):
-        if self.load_user:
-            self.user = self.load_user()
+    def load_user(self):
+        if self.load_user_fct:
+            self.user = self.load_user_fct()
             self.hasUser = self.user is not None
             self.isAdmin = self.user and self.user.is_admin
 
@@ -60,14 +194,6 @@ class RestContext:
 class RestAPI:
     __APIDoc__ = {}
     __APIRoute2Type__ = []
-    __TSTypes__ = {
-        'bool': 'boolean',
-        'str': 'string',
-        'float': 'number',
-        'int': 'number',
-        'NoneType': 'null',
-        'Any': 'unknown'
-    }
     __RegisteredTypes__ = {}
 
     def __init__(self,
@@ -105,13 +231,17 @@ class RestAPI:
     def get_all_command():
         print('import { v4 as uuidv4 } from "uuid";')
         rest_api = current_app.extensions['restapi']
-        print(rest_api.get_typescript_types())
-        print(rest_api.generate_typescript_fetch_functions())
+        ts_gen = TypeScriptGenerator(self)
+        types = ts_gen.generate_typescript_types()
+        fetchs = ts_gen.generate_typescript_fetch_functions()
+        print(types)
+        print(fetchs)
 
     def get_all(self):
-        base = 'import { v4 as uuidv4 } from "uuid";'
-        types = self.get_typescript_types()
-        fetchs = self.generate_typescript_fetch_functions()
+        ts_gen = TypeScriptGenerator(self)
+        types = ts_gen.generate_typescript_types()
+        fetchs = ts_gen.generate_typescript_fetch_functions()
+        base = ''  #:import { v4 as uuidv4 } from "uuid";
         return f'''{base}\n{types}\n{fetchs}'''
 
     def route_decorator(self, original_route):
@@ -120,13 +250,18 @@ class RestAPI:
             req = kwargs.pop('req',
                              None)  # Add this line to get the 'req' parameter
 
-            if 'response_type' in kwargs:
-                response_type = kwargs.pop('response_type')
-                methods = kwargs.get('methods', ['GET'])
-                self.add_type_information(args[0], methods, response_type, req)
-                self.register_type_recursively(response_type)
+            accept_files = None
+            if 'accept_files' in kwargs:
+                accept_files = kwargs.pop('accept_files')
 
             def decorator(f):
+                if 'response_type' in kwargs:
+                    response_type = kwargs.pop('response_type')
+                    methods = kwargs.get('methods', ['GET'])
+                    self.add_type_information(args[0], methods, response_type,
+                                              req, f.__name__, accept_files)
+                    self.register_type_recursively(response_type)
+
                 if req:
 
                     @wraps(f)
@@ -161,9 +296,16 @@ class RestAPI:
 
         return new_route_decorator
 
-    def add_type_information(self, endpoint, methods, response_type, req=None):
+    def add_type_information(self,
+                             endpoint,
+                             methods,
+                             response_type,
+                             req=None,
+                             func_name=None,
+                             accept_files=None):
         types = {
-            f.name: RestAPI.__TSTypes__.get(f.type.__name__, f.type.__name__)
+            f.name: TypeScriptGenerator.__TSTypes__.get(f.type.__name__,
+                                                        f.type.__name__)
             for f in response_type.__dataclass_fields__.values()
         }
         name = response_type.__name__
@@ -185,48 +327,13 @@ class RestAPI:
             'method': methods[0],
             'name': name,
             'args': _args,
-            'req': req
+            'req': req,
+            'func_name': func_name,
+            'accept_files': accept_files
         })
 
     def get_api_types(self) -> Dict[str, Dict[str, str]]:
         return RestAPI.__APIDoc__
-
-    def get_typescript_types(self) -> str:
-
-        def process_type(t: type) -> str:
-            if t.__name__ in RestAPI.__TSTypes__:
-                return RestAPI.__TSTypes__[t.__name__]
-            elif t.__name__ == 'List':
-                subtype = t.__args__[0]
-                return f'Array<{process_type(subtype)}>'
-            else:
-                return t.__name__
-
-        def generate_types(cls: type) -> str:
-            result = f'export interface {cls.__name__} {{\n'
-            for field in cls.__dataclass_fields__.values():
-                result += f"  {field.name}: {process_type(field.type)};\n"
-            result += '}\n\n'
-            return result
-
-        visited_types = set()
-        result_types = []
-
-        def visit_type(cls):
-            if cls in visited_types or cls in RestAPI.__TSTypes__:
-                return
-            visited_types.add(cls)
-            if hasattr(cls, '__dataclass_fields__'):
-                for field in cls.__dataclass_fields__.values():
-                    visit_type(field.type)
-                result_types.append(generate_types(cls))
-
-        for cls in RestAPI.__APIDoc__.values():
-            response_type_name = cls['name']
-            response_type = RestAPI.__RegisteredTypes__[response_type_name]
-            visit_type(response_type)
-
-        return ''.join(result_types)
 
     def register_types(self, t: List[type]):
         for _t in t:
@@ -236,52 +343,10 @@ class RestAPI:
         RestAPI.__RegisteredTypes__[t.__name__] = t
 
     def register_type_recursively(self, t: type):
-        if t.__name__ in RestAPI.__RegisteredTypes__ or t.__name__ in RestAPI.__TSTypes__:
+        if t.__name__ in RestAPI.__RegisteredTypes__ or t.__name__ in TypeScriptGenerator.__TSTypes__:
             return
         self.register_type(t)
         if hasattr(t, '__dataclass_fields__'):
             for field in t.__dataclass_fields__.values():
-                if field.type.__name__ not in RestAPI.__TSTypes__:
+                if field.type.__name__ not in TypeScriptGenerator.__TSTypes__:
                     self.register_type_recursively(field.type)
-
-    def generate_typescript_fetch_functions(self) -> str:
-        result = []
-
-        def to_camel_case(s: str) -> str:
-            s = s.strip('/').replace('-', '_')
-            return ''.join(word.capitalize() if i > 0 else word
-                           for i, word in enumerate(s.split('_')))
-
-        for route_info in RestAPI.__APIRoute2Type__:
-            route = route_info['route']
-            method = route_info['method']
-            response_type = route_info['type']
-            func_name = f"{to_camel_case(route)}Fetch"
-
-            headers = f'headers: new Headers({{"Content-Type": "application/json", "X-Request-Id": uuidv4(), "X-Fyrest-Session": session}})'
-
-            if method == 'GET':
-                result.append(f'''
-export async function {func_name}(params: {{ [key: string]: any }}): Promise<{response_type}> {{
-    const queryParams = Object.entries(params).map(([key, value]) => `${{encodeURIComponent(key)}}=${{encodeURIComponent(value)}}`).join('&');
-    const url = `{self.base_url}{route}` + (queryParams ? `?${{queryParams}}` : '');
-    const response = await fetch(url, {{
-        method: '{method}',
-        {headers}
-    }});
-    return (await response.json()) as {response_type};
-}}
-    ''')
-            else:
-                result.append(f'''
-export async function {func_name}(params: {{ [key: string]: any }}): Promise<{response_type}> {{
-    const response = await fetch(`{self.base_url}{route}`, {{
-        method: '{method}',
-        {headers},
-        body: JSON.stringify(params)
-    }});
-    return (await response.json()) as {response_type} & {{ success: boolean }};
-}}
-    ''')
-
-        return '\n'.join(result)

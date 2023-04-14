@@ -38,12 +38,18 @@ class User:
 class UserResponse(APIResponse):
     data: User
 
-api.register_types([User, UserResponse]) #: need to find a better way to do that.
-
 @app.route('/users', methods=['GET'], response_type=UserResponse)
 def get_users(ctx):
     users = [User(id=1, name='Alice'), User(id=2, name='Bob')]
     return jsonify(UserResponse(data=users, success=True, time=ctx.get_time()))
+    
+    
+#: Or with blueprints
+rest_api = RestAPI()
+#... rest_api.init_app(app)
+persona_bp = Blueprint('persona', __name__)
+rest_api.register_blueprint(persona_bp) #: RestAPI instance
+persona_bp.route('/xxx', methods=['GET'], response_type=UserResponse) #: etc...
 ```
 
 ## CLI Commands

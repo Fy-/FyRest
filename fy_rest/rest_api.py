@@ -85,6 +85,7 @@ class TypeScriptGenerator:
             return self.generate_get_function(route_info, func_name, headers)
         else:
             if route_info['accept_files']:
+                headers = f'headers: new Headers({{"X-Request-Id": uuidv4(), "X-Fyrest-Session": session}})'
                 return self.generate_post_function_with_files(
                     route_info, func_name, headers)
             else:

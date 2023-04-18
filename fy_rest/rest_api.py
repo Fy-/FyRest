@@ -12,7 +12,7 @@ import __main__
 @dataclass
 class APIResponse:
     success: bool
-    data: Any = None
+    data: any = None
     message: str = None
     time: float = None
 

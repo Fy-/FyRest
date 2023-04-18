@@ -1,16 +1,13 @@
 import time
 import re
 from dataclasses import dataclass
-from typing import Dict, Callable, Any, List, ForwardRef
+from typing import Dict, Callable
 from flask import request, Flask, jsonify, current_app, Response
 from flask.cli import with_appcontext
 from functools import wraps
 from .typescript import TypeScriptGenerator
 import click
 import __main__
-
-routeArgs = re.compile(r'\<(.*?)\>')
-
 
 @dataclass
 class APIResponse:

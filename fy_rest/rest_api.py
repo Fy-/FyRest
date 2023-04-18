@@ -13,7 +13,6 @@ routeArgs = re.compile(r'\<(.*?)\>')
 
 class TypeScriptGenerator:
     __TSTypes__ = {
-        'Optional[float]': 'number',
         'bool': 'boolean',
         'str': 'string',
         'float': 'number',
@@ -25,14 +24,23 @@ class TypeScriptGenerator:
     def __init__(self, rest_api: "RestAPI"):
         self.rest_api = rest_api
 
-    def process_type(self, t: type) -> str:
+    def process_type(self, t: Any) -> str:  # Change the argument type to Any
+        print(t)
+        if isinstance(t, str):
+            return t
         if t.__name__ in TypeScriptGenerator.__TSTypes__:
             return TypeScriptGenerator.__TSTypes__[t.__name__]
         elif t.__name__ == 'List':
             subtype = t.__args__[0]
             return f'Array<{self.process_type(subtype)}>'
+        elif t.__name__ == 'Optional':
+            subtype = t.__args__[0]
+            return f'{self.process_type(subtype)} | null'
         else:
-            return t.__name__
+            if dataclasses.is_dataclass(t):
+                return t.__name__
+            else:
+                raise ValueError(f"Unsupported type: {t}")
 
     def to_camel_case(self, s: str) -> str:
         s = s.strip('/').replace('-', '_')
@@ -310,6 +318,7 @@ class RestAPI:
                                                         f.type.__name__)
             for f in response_type.__dataclass_fields__.values()
         }
+
         name = response_type.__name__
         _endpoint = endpoint
         _args = []

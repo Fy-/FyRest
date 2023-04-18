@@ -13,6 +13,7 @@ routeArgs = re.compile(r'\<(.*?)\>')
 
 class TypeScriptGenerator:
     __TSTypes__ = {
+        'Optional[float]': 'number',
         'bool': 'boolean',
         'str': 'string',
         'float': 'number',

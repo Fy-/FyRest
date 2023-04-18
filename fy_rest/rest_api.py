@@ -25,7 +25,6 @@ class TypeScriptGenerator:
         self.rest_api = rest_api
 
     def process_type(self, t: Any) -> str:  # Change the argument type to Any
-        print(t)
         if isinstance(t, str):
             return t
         if t.__name__ in TypeScriptGenerator.__TSTypes__:

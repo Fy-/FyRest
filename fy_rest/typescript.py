@@ -59,7 +59,6 @@ class TypeScriptGenerator:
     @classmethod
     def __generate_typescript(cls, dataclass_obj: Any) -> str:
         field_lines = []
-        print(dataclass_obj)
         for field_name, field in dataclass_obj.__dataclass_fields__.items():
             field_line = f"{field_name}: {cls.__convert_to_ts_type(field.type)};"
             field_lines.append(field_line)
@@ -70,7 +69,6 @@ class TypeScriptGenerator:
 
     @classmethod
     def __convert_to_ts_type(cls, field_type: Any) -> str:
-        print(field_type)
 
         if hasattr(field_type, "__dataclass_fields__"):
             cls.__generate_typescript(field_type)

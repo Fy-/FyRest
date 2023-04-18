@@ -9,6 +9,7 @@ from .typescript import TypeScriptGenerator
 import click
 import __main__
 
+
 @dataclass
 class APIResponse:
     success: bool
@@ -19,8 +20,8 @@ class APIResponse:
 
 class RestContext:
 
-    def __init__(self, headers, req, load_user: Callable[[], Any],
-                 refresh_user: Callable[[], Any]):
+    def __init__(self, headers, req, load_user: Callable[[], any],
+                 refresh_user: Callable[[], any]):
         self.uuid = False
         self.start = time.time_ns()
         self.headers = headers
@@ -95,7 +96,6 @@ class RestAPI:
     @with_appcontext
     @staticmethod
     def get_all_command():
-        print('import { v4 as uuidv4 } from "uuid";')
         rest_api = current_app.extensions['restapi']
         print(rest_api.before_ts)
         print(TypeScriptGenerator.get_all_types())

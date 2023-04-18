@@ -37,10 +37,7 @@ class TypeScriptGenerator:
             subtype = t.__args__[0]
             return f'{self.process_type(subtype)} | null'
         else:
-            if dataclasses.is_dataclass(t):
-                return t.__name__
-            else:
-                raise ValueError(f"Unsupported type: {t}")
+            return t.__name__
 
     def to_camel_case(self, s: str) -> str:
         s = s.strip('/').replace('-', '_')

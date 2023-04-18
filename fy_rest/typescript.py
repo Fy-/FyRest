@@ -63,7 +63,7 @@ class TypeScriptGenerator:
             field_line = f"{field_name}: {cls.__convert_to_ts_type(field.type)};"
             field_lines.append(field_line)
 
-        ts_type = "type %s = {\n  %s\n};" % (dataclass_obj.__name__,
+        ts_type = "export type %s = {\n  %s\n};" % (dataclass_obj.__name__,
                                              '\n  '.join(field_lines))
         return ts_type
 

@@ -1,7 +1,7 @@
 import time
 import re
 from dataclasses import dataclass
-from typing import Dict, Callable
+from typing import Dict, Callable, Optional
 from flask import request, Flask, jsonify, current_app, Response
 from flask.cli import with_appcontext
 from functools import wraps
@@ -11,11 +11,20 @@ import __main__
 
 
 @dataclass
+class APIPaging:
+    count: int
+    page_max: int
+    results_per_page: int
+    page_no: Optional[int] = 1
+
+
+@dataclass
 class APIResponse:
     success: bool
-    data: any = None
-    message: str = None
     time: float = None
+    data: any = None
+    message: Optional[str] = None
+    paging: Optional[APIPaging] = None
 
 
 class RestContext:
@@ -35,12 +44,20 @@ class RestContext:
         self.load_user_fct = load_user
         self.refresh_user_fct = refresh_user
         self.request_id = self.headers.get('x-request-id')
+        self.paging_page_no = int(request.args.get('page_no', 1))
+        self.paging_per_page = int(request.args.get('results_per_page', 15))
+        if self.paging_per_page > 40:
+            self.paging_per_page = 40
+
         TypeScriptGenerator.get_typescript(APIResponse)
         if self.req in ['user', 'admin']:
             self.loadUser()
 
         if self.header_session:
             self.session = self.header_session
+
+    def get_page_max(self, count):
+        return (count + self.paging_per_page - 1) // self.paging_per_page
 
     def get_time(self):
         return (time.time_ns() - self.start) / 1000000000

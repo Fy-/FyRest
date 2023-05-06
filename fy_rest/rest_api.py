@@ -44,7 +44,7 @@ class RestContext:
         self.load_user_fct = load_user
         self.refresh_user_fct = refresh_user
         self.request_id = self.headers.get('x-request-id')
-        self.paging_page_no = int(request.args.get('page_no', 1))
+        self.paging_page_no = int(request.args.get('page', 1))
         self.paging_per_page = int(request.args.get('results_per_page', 15))
         if self.paging_per_page > 40:
             self.paging_per_page = 40
